@@ -30,9 +30,9 @@ def parallelize_flux(
 
     if parallel_dims.dp_shard_enabled:  # apply FSDP or HSDP
         if parallel_dims.dp_replicate_enabled:
-            dp_mesh_dim_names = ("dp_replicate", "dp_shard_cp")
+            dp_mesh_dim_names = ("dp_replicate", "dp_shard")
         else:
-            dp_mesh_dim_names = ("dp_shard_cp",)
+            dp_mesh_dim_names = ("dp_shard",)
 
         apply_fsdp(
             model,
@@ -120,13 +120,11 @@ def parallelize_encoders(
     parallel_dims: ParallelDims,
     job_config: JobConfig,
 ):
-    if (
-        parallel_dims.dp_shard_enabled or parallel_dims.dp_replicate_enabled
-    ):  # apply FSDP or HSDP
+    if parallel_dims.dp_shard_enabled:  # apply FSDP or HSDP
         if parallel_dims.dp_replicate_enabled:
-            dp_mesh_dim_names = ("dp_replicate", "dp_shard_cp")
+            dp_mesh_dim_names = ("dp_replicate", "dp_shard")
         else:
-            dp_mesh_dim_names = ("dp_shard_cp",)
+            dp_mesh_dim_names = ("dp_shard",)
 
         mp_policy = MixedPrecisionPolicy(
             param_dtype=TORCH_DTYPE_MAP[job_config.training.mixed_precision_param],

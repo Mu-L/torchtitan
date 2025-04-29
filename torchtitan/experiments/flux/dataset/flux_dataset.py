@@ -118,7 +118,7 @@ def _flux_data_processor_from_encodings(
         output_size: The output image size
 
     """
-    print(sample)
+    print(sample.keys())
     return sample
 
 
@@ -136,7 +136,7 @@ DATASETS = {
         data_processor=_cc12m_wds_data_processor,
     ),
     "cc12m-preprocessed": TextToImageDatasetConfig(
-        path="assets/preprocess",
+        path="outputs/preprocess",
         loader=lambda path: load_dataset(path, split="train", streaming=True),
         data_processor=_flux_data_processor_from_encodings,
     ),
@@ -227,6 +227,11 @@ class FluxDataset(IterableDataset, Stateful):
                     output_size=self.job_config.training.img_size,
                 )
 
+                image_key = "image"
+                is_preprocessed = "image_encodings" in sample_dict.keys()
+                if is_preprocessed:
+                    image_key = "image_encodings"
+
                 # skip low quality image or image with color channel = 1
                 if sample_dict["image"] is None:
                     logger.warning(
@@ -245,7 +250,7 @@ class FluxDataset(IterableDataset, Stateful):
                 self._all_samples.extend(sample_dict)
                 self._sample_idx += 1
 
-                labels = sample_dict.pop("image")
+                labels = sample_dict.pop(image_key)
                 yield sample_dict, labels
 
             if not self.infinite:
