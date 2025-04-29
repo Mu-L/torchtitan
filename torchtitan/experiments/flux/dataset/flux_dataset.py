@@ -228,12 +228,13 @@ class FluxDataset(IterableDataset, Stateful):
                 )
 
                 image_key = "image"
-                is_preprocessed = "image_encodings" in sample_dict.keys()
+                print(sample_dict.keys())
+                is_preprocessed = "img_encodings" in sample_dict.keys()
                 if is_preprocessed:
-                    image_key = "image_encodings"
+                    image_key = "img_encodings"
 
                 # skip low quality image or image with color channel = 1
-                if sample_dict["image"] is None:
+                if not is_preprocessed and sample_dict["image"] is None:
                     logger.warning(
                         f"Low quality image {sample['__key__']} is skipped in Flux Dataloader"
                     )
