@@ -440,7 +440,9 @@ class Float8:
     for backward computation.
     """
 
-    recipe_name: Literal["tensorwise", "rowwise", "rowwise_with_gw_hp"] | None = None
+    recipe_name: Literal[
+        "tensorwise", "rowwise", "rowwise_with_gw_hp", "mxfp8"
+    ] | None = None
     """If specified, creates float8 config from recipe name"""
 
     filter_fqns: list[str] | str = field(default_factory=list)
@@ -449,6 +451,34 @@ class Float8:
     nn.Linear modules with any dim size not divisible by 16 are always skipped due to hardware requirements.
     Example: --float8.filter_fqns "attention.wq,attention.wk,attention.wv,output"
     """
+
+
+# @dataclass
+# class MXFloat8:
+#     # enable_fsdp_float8_all_gather: bool = False
+#     # Needs to be built out
+#     """Whether enable float8 all-gather in FSDP"""
+
+#     # precompute_float8_dynamic_scale_for_fsdp: bool = False
+#     """Whether precompute float8 scales dynamically for FSDP, recommended for tensorwise scaling"""
+
+#     # force_recompute_fp8_weight_in_bwd: bool = False
+#     """
+#     Whether to force the recomputation of FP8 weights during backward pass.
+#     When using FSDP with tensorwise scaling, it is recommended to enable
+#     `force_recompute_fp8_weight_in_bwd` to prevent saving unsharded FP8 weights
+#     for backward computation.
+#     """
+
+#     recipe_name: Literal["mxfp8"] = "mxfp8"
+#     """If specified, creates float8 config from recipe name"""
+
+#     filter_fqns: list[str] | str = field(default_factory=list)
+#     """
+#     Comma-separated list of fully qualified names of modules to skip applying mxfloat8 training to.
+#     nn.Linear modules with any dim size not divisible by 16 are always skipped due to hardware requirements.
+#     Example: --MXFloat8.filter_fqns "attention.wq,attention.wk,attention.wv,output"
+#     """
 
 
 @dataclass
@@ -552,6 +582,7 @@ class JobConfig:
         default_factory=ActivationCheckpoint
     )
     float8: Float8 = field(default_factory=Float8)
+    # mxfloat8: MXFloat8 = field(default_factory=MXFloat8)
     comm: Comm = field(default_factory=Comm)
     memory_estimation: MemoryEstimation = field(default_factory=MemoryEstimation)
     fault_tolerance: FaultTolerance = field(default_factory=FaultTolerance)

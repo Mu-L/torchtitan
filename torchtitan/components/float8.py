@@ -13,10 +13,14 @@
 # Note: Performance
 # Float8 experimental is intended to be ran under `torch.compile`` for competitive performance
 
+from importlib.metadata import version
+from importlib.util import find_spec
+from typing import Any, List
+
 import torch
 import torch.nn as nn
 
-from torchtitan.config_manager import JobConfig
+from torchtitan.config_manager import Float8, JobConfig
 from torchtitan.distributed import ParallelDims
 from torchtitan.protocols.model_converter import (
     ModelConverter,
@@ -150,4 +154,104 @@ class Float8Converter(ModelConverter):
             precompute_float8_dynamic_scale_for_fsdp(m)
 
 
+class MXFloat8Converter(ModelConverter):
+    """Converts the linear layers of `model` to `MXLinear`."""
+
+    enabled: bool
+    filter_fqns: List[str] | str
+    mx_config: Any  # MXLinearConfig type when imported
+
+    def __init__(self, job_config: JobConfig, parallel_dims: ParallelDims):
+
+        self.enabled = False
+        # mx_job_config = job_config.mxfloat8
+        float8_job_config: Float8 = job_config.float8
+        assert float8_job_config is not None
+        assert float8_job_config.recipe_name is not None
+        assert float8_job_config.enable_fsdp_float8_all_gather is False
+        assert float8_job_config.force_recompute_fp8_weight_in_bwd is False
+        assert float8_job_config.precompute_float8_dynamic_scale_for_fsdp is False
+
+        name_map = {"mxfp8": "mxfp8_cublas"}
+
+        if not has_cuda_capability(10, 0):
+            # Why no assert?
+            logger.warning(
+                "Failed to swap to MXLinear because MXFP8 is only supported on SM100 or later"
+            )
+            return
+
+        # Ensure minimum torchao versions
+        torchao_spec = find_spec("torchao")
+        if torchao_spec is None:
+            raise ImportError(
+                "torchao is not installed. Please install it to use MXFP8 linear layers."
+            )
+        torchao_version = version("torchao")
+        mxfp8_min_version = "0.11.0"
+        if torchao_version < mxfp8_min_version:
+            raise ImportError(
+                f"torchao version {torchao_version} is too old, please install torchao {mxfp8_min_version} or later and try again"
+            )
+
+        self.enabled = True
+        self.filter_fqns = float8_job_config.filter_fqns
+
+        # Configure MXFP8
+        from torchao.prototype.mx_formats.config import MXLinearConfig
+
+        config = MXLinearConfig.from_recipe_name(
+            name_map[float8_job_config.recipe_name]
+        )
+        # Temp workaround for inductor perf bug
+        config.use_fp8_dim1_cast_triton_kernel = True
+        self.config = config
+
+        logger.info(
+            f"Float8 training active with recipe {float8_job_config.recipe_name}"
+        )
+
+    def convert(self, model: nn.Module):
+        """
+        Converts the linear layers of `model` to `MXLinear`.
+        Note that today, only dynamic tensor scaling (the default) is supported.
+        This will mutate the model inplace.
+        """
+        if not self.enabled:
+            return
+
+        from torchao.prototype.mx_formats.config import MXLinearConfig
+        from torchao.quantization import quantize_
+
+        assert isinstance(self.config, MXLinearConfig)
+        quantize_(model, config=self.config, filter_fn=self._module_filter_fn)
+        logger.info("Swapped to MXLinear layers")
+
+    def post_optimizer_hook(self, model: nn.Module | list[nn.Module]):
+        """
+        MXFP8 doesn't require any post-optimizer hooks at the moment
+        """
+        return
+
+    def _module_filter_fn(self, mod: nn.Module, fqn: str) -> bool:
+        """
+        Filter function to determine which modules should be converted.
+        For MXFP8, we only convert Linear modules with dimensions divisible by 16
+        and not matching any filtered FQNs.
+        """
+        if not isinstance(mod, nn.Linear):
+            return False
+
+        # All dims must be divisible by 16 due to float8 tensorcore hardware requirements.
+        dims_multiples_of_16 = (
+            mod.weight.shape[0] % 16 == 0 and mod.weight.shape[1] % 16 == 0
+        )
+
+        # If the fqn matches any filtered fqn, then we should not convert this module.
+        is_filtered_fqn = any(filtered_fqn in fqn for filtered_fqn in self.filter_fqns)
+
+        return dims_multiples_of_16 and not is_filtered_fqn
+
+
+register_model_converter(MXFloat8Converter, "mxfloat8")
 register_model_converter(Float8Converter, "float8")
